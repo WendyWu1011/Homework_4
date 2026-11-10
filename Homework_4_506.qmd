@@ -1,0 +1,250 @@
+---
+title: "Homework_3"
+editor: visual
+format:
+  html:
+    embed-resources: true
+---
+
+My GitHub link: <https://github.com/WendyWu1011/Homework_4>
+
+```{r}
+#| warning: false
+#| message: false
+#Qustion_1_(a)
+#First we want to see detail of the data
+library(tidyverse)
+nzge <- readRDS("nzge.rds")
+glimpse(nzge)
+
+#Then collect these information that we need.
+nzge %>%
+  select(election_year, voting_type, votes) %>%
+  head()
+
+#Now we can start to write the (a) build a table 
+nzge %>%
+  group_by(election_year, voting_type) %>%
+  summarise(total_votes = sum(votes), .groups = "drop") %>%
+  arrange(desc(total_votes))
+
+votes_a <- nzge %>%
+  group_by(election_year, voting_type) %>%
+  summarise(total_votes = sum(votes), .groups = "drop") %>%
+  arrange(desc(total_votes))
+
+votes_a
+```
+
+```{r}
+# Q1_(b)
+candidate_total <- votes_a %>%
+  filter(election_year == 2014, voting_type == "Candidate") %>%
+  pull(total_votes)
+
+nzge %>%
+  filter(election_year == 2014, voting_type == "Candidate") %>%
+  group_by(party) %>%
+  summarise(party_votes = sum(votes), .groups = "drop") %>%
+  mutate(vote_percent = 100 * party_votes / candidate_total) %>%
+  arrange(desc(vote_percent)) %>%
+# Exclude informal votes from the table, but keep them in the denominator.
+  filter(party != "Informal Candidate Votes") %>%
+  mutate(vote_percent = round(vote_percent, 2))
+#Percentages are based on all candidate votes cast in 2014, including informal votes. The table omits the informal-vote category.
+```
+
+```{r}
+# Q1_(c)
+nzge %>%
+  # Add up each party's votes within each year and vote type.
+  group_by(election_year, voting_type, party) %>%
+  summarise(total_votes = sum(votes), .groups = "drop") %>%
+  group_by(election_year, voting_type) %>%
+  slice_max(order_by = total_votes, n = 1, with_ties = TRUE) %>%
+  ungroup() %>%
+
+  # Display the winning parties side by side for each year.
+  select(election_year, voting_type, party) %>%
+  pivot_wider(names_from = voting_type, values_from = party) %>%
+  arrange(election_year)
+
+#In 2002, the Labour Party received the most votes in both categories. In 2005, the National Party received the most candidate votes, while the Labour Party received the most party votes. In 2008, 2011, and 2014, the National Party led in both categories.
+```
+
+```{r}
+#Question_2_(a)
+#First we download the data
+tennis_url <- "https://raw.githubusercontent.com/azhou5849/tennis-atp-sackmann-data/master/atp_matches_2019.csv"
+tennis <- read_csv(tennis_url, show_col_types = FALSE)
+glimpse(tennis)
+tennis %>%
+  select(tourney_id, tourney_name) %>%
+  head()
+# Count each tournament ID once
+tennis %>%
+  summarise(number_of_tournaments = n_distinct(tourney_id))
+#There are 128 tournaments took place in 2019
+```
+
+```{r}
+#Q2_(b)
+# Count how many finals each player won
+titles <- tennis %>%
+  filter(round == "F") %>%
+  count(winner_name, name = "titles_won", sort = TRUE)
+
+winners <- titles %>%
+  filter(titles_won > 1)
+
+winners
+
+# Report the number of these players and the highest title count
+winners %>%
+  summarise(
+    number_of_players = n(),
+    most_titles = max(titles_won)
+  )
+#Yes. 12 players won more than one tournament in 2019. winning 5 tournaments each.
+```
+
+```{r}
+#Q2_(c)
+tennis %>%
+  # Keep matches with ace counts recorded for both players
+  drop_na(w_ace, l_ace) %>%
+  # Compare the winner and loser within each match
+  summarise(
+    matches = n(),
+    avg_winner_aces = round(mean(w_ace), 2),
+    avg_loser_aces = round(mean(l_ace), 2),
+    avg_difference = round(mean(w_ace - l_ace), 2),
+    pct_winner_more = round(100 * mean(w_ace > l_ace), 2)
+  )
+```
+
+```{r}
+#Q2_(d)
+
+results <- bind_rows(
+  tennis %>% transmute(player = winner_name, win = 1),
+  tennis %>% transmute(player = loser_name, win = 0)
+)
+
+# Calculate 
+  results %>%
+  group_by(player) %>%
+  summarise(
+    matches = n(),
+    wins = sum(win),
+    win_rate = wins / matches,
+    .groups = "drop"
+  ) %>%
+  filter(matches >= 5) %>%
+  slice_max(win_rate, n = 1, with_ties = TRUE) %>%
+  mutate(win_percent = round(100 * win_rate, 2)) %>%
+  select(player, matches, wins, win_percent)
+  
+  #The results is 86.96%, Rafael Nadal had the highest win rate
+```
+
+```{r}
+#Question_3_(a)
+
+# Read the state-level COVID-19 data
+covid_url <- "https://raw.githubusercontent.com/nytimes/covid-19-data/refs/heads/master/rolling-averages/us-states.csv"
+covid <- read_csv(covid_url, show_col_types = FALSE)
+
+# Add up cases across locations for each day, then average by month
+monthly_cases <- covid %>%
+  group_by(date) %>%
+  summarise(daily_cases = sum(cases, na.rm = TRUE), .groups = "drop") %>%
+  mutate(month = lubridate::floor_date(date, "month")) %>%
+  group_by(month) %>%
+  summarise(avg_cases = mean(daily_cases), .groups = "drop") %>%
+  arrange(month)
+peaks <- monthly_cases %>%
+  filter(avg_cases > lag(avg_cases), avg_cases > lead(avg_cases)) %>%
+  mutate(spike = if_else(avg_cases >= 100000, "Major", "Minor"))
+peaks %>%
+  count(spike)
+ggplot(monthly_cases, aes(x = month, y = avg_cases)) +
+  geom_hline(yintercept = 100000, linetype = "dashed", colour = "pink") +
+  geom_line(colour = "black", linewidth = 0.8) +
+  geom_point(data = peaks, aes(colour = spike, shape = spike), size = 3.5) +
+  scale_colour_manual(values = c(Major = "red", Minor = "blue")) +
+  scale_shape_manual(values = c(Major = 17, Minor = 16)) +
+  scale_x_date(date_breaks = "6 months", date_labels = "%b\n%Y") +
+  scale_y_continuous(labels = scales::label_comma()) +
+  labs(
+    title = "U.S. COVID-19 cases had four major and four minor peaks",
+    subtitle = "Monthly averages of daily reported cases. Dashed line: 100,000 cases per day.",
+    x = NULL,
+    y = "Average daily new cases",
+    colour = "Peak type",
+    shape = "Peak type",
+    caption = "Source: The New York Times, U.S. COVID-19 data."
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom", panel.grid.minor = element_blank())
+# There are 4 major and 4 minor
+```
+
+```{r}
+# Q3_(b)
+
+states <- covid %>%
+  filter(state %in% state.name) %>%
+  group_by(state) %>%
+  summarise(overall_rate = sum(cases_avg_per_100k, na.rm = TRUE),
+            .groups = "drop") %>%
+  filter(overall_rate == max(overall_rate) | overall_rate == min(overall_rate))
+
+# Plot the daily case-rate trajectories for those two states
+covid %>%
+  filter(state %in% states$state) %>%
+  ggplot(aes(x = date, y = cases_avg_per_100k, colour = state)) +
+  geom_line(linewidth = 0.8) +
+  scale_colour_manual(values = c("Maine" = "red", "Rhode Island" = "blue")) +
+  labs(
+    title = "Rhode Island’s case rate peaked earlier and higher than Maine’s",
+    x = NULL, y = "Daily reported cases per 100,000",
+    colour = NULL, caption = "The New York Times COVID-19 data"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "top")
+
+# Among the 50 states, Rhode Island had the highest overall reported case rate and Maine had the lowest. Rhode Island peaked at 506.81 daily cases per 100,000 on January 11, 2022. Maine peaked about six weeks later, on February 23, at 81.21 cases per 100,000.
+```
+
+```{r}
+#Q3_(c)
+# on a 7-day average. Multiply by 0.7 to convert the rate from per 100,000.
+five <- covid %>%
+  filter(state %in% state.name, cases_avg_per_100k * 0.7 >= 7) %>%
+  group_by(state) %>%
+  summarise(first_date = min(date), .groups = "drop") %>%
+  slice_min(first_date, n = 5, with_ties = TRUE) %>%
+  arrange(first_date, state)
+
+five
+
+# Plot the dates with the earliest state at the top
+five %>%
+  mutate(state = factor(state, levels = rev(state))) %>%
+  ggplot(aes(x = first_date, y = state)) +
+  geom_point(size = 4, colour = "red") +
+  scale_x_date(
+    breaks = sort(unique(five$first_date)),
+    date_labels = "%b %d"
+  ) +
+  labs(
+    title = "First five U.S. states to reach the COVID-19 case threshold",
+    subtitle = "7-day average of at least 7 new reported cases per 70,000 people per day",
+    x = "Date in 2020",
+    y = NULL,
+    caption = "The New York Times COVID-19 data"
+  ) +
+  theme_minimal(base_size = 12)
+#I defined a substantial outbreak as a seven-day average of at least 7 new reported cases per 70,000 people per day. New York was the first state to reach this threshold on March 22, 2020, followed by New Jersey on March 27 and Massachusetts on March 30. Connecticut and Louisiana both reached it on March 31, completing the first five states.
+```
